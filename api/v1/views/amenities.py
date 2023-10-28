@@ -1,77 +1,140 @@
 #!/usr/bin/python3
-"""script that starts a Flask web application"""
+'''
+Creates a view for Amenity objects - handles all default RESTful API actions.
+'''
 
 
-from flask import Flask, jsonify, abort, request
-from models import storage
-from api.v1.views import app_views
+# Import necessary modules
+from flask import abort, jsonify, request
 from models.amenity import Amenity
-import os
-app = Flask(__name__)
+from api.v1.views import app_views
+from models import storage
 
 
+
+
+# Route for retrieving all Amenity objects
 @app_views.route('/amenities', methods=['GET'], strict_slashes=False)
-def get_amenities():
-    """Retrieves the list of all Amenity objects"""
-    amenities = storage.all('Amenity')
-    amenities_list = []
-    for amenity in amenities.values():
-        amenities_list.append(amenity.to_dict())
-    return jsonify(amenities_list), 200
+def get_all_amenities():
+    '''Retrieves the list of all Amenity objects'''
+    # Get all Amenity objects from the storage
+    amenities = storage.all(Amenity).values()
+    # Convert objects to dictionaries and jsonify the list
+    return jsonify([amenity.to_dict() for amenity in amenities])
 
 
-@app_views.route('/amenities/<amenity_id>', methods=['GET'],
-                 strict_slashes=False)
-def get_amenity(amenity_id=None):
-    """Retrieves a Amenity object with the id linked to it"""
-    amenities = storage.all('Amenity')
-    amenity = amenities.get('Amenity' + "." + amenity_id)
-    if amenity is None:
-        abort(404)
-    else:
-        return jsonify(amenity.to_dict()), 200
 
 
+# Route for retrieving a specific Amenity object by ID
 @app_views.route('/amenities/<amenity_id>',
-                 methods=['DELETE'], strict_slashes=False)
-def delete_amenity(amenity_id=None):
-    """Deletes a Amenity object"""
-    obj = storage.get('Amenity', amenity_id)
-    if obj is None:
-        abort(404)
+                 methods=['GET'], strict_slashes=False)
+def get_amenity(amenity_id):
+    '''Retrieves an Amenity object'''
+    # Get the Amenity object with the given ID from the storage
+    amenity = storage.get(Amenity, amenity_id)
+    if amenity:
+        # Return the Amenity object in JSON format
+        return jsonify(amenity.to_dict())
     else:
-        storage.delete(obj)
+        # Return 404 error if the Amenity object is not found
+        abort(404)
+
+
+
+
+# Route for deleting a specific Amenity object by ID
+@app_views.route('/amenities/<amenity_id>', methods=['DELETE'])
+def delete_amenity(amenity_id):
+    '''Deletes an Amenity object'''
+    # Get the Amenity object with the given ID from the storage
+    amenity = storage.get(Amenity, amenity_id)
+    if amenity:
+        # Delete the Amenity object from the storage and save changes
+        storage.delete(amenity)
         storage.save()
-    return jsonify({}), 200
+        # Return an empty JSON with 200 status code
+        return jsonify({}), 200
+    else:
+        # Return 404 error if the Amenity object is not found
+        abort(404)
 
 
+
+
+# Route for creating a new Amenity object
 @app_views.route('/amenities', methods=['POST'], strict_slashes=False)
-def post_amenity():
-    """Creates a Amenity"""
-    result = request.get_json()
-    if not result:
-        abort(400, {"Not a JSON"})
-    if 'name' not in result:
-        abort(400, {"Missing name"})
-    obj = Amenity(name=result['name'])
-    storage.new(obj)
-    storage.save()
-    return jsonify(obj.to_dict()), 201
+def create_amenity():
+    '''Creates an Amenity object'''
+    if not request.get_json():
+        # Return 400 error if the request data is not in JSON format
+        abort(400, 'Not a JSON')
 
 
+    # Get the JSON data from the request
+    data = request.get_json()
+    if 'name' not in data:
+        # Return 400 error if 'name' key is missing in the JSON data
+        abort(400, 'Missing name')
+
+
+    # Create a new Amenity object with the JSON data
+    amenity = Amenity(**data)
+    # Save the Amenity object to the storage
+    amenity.save()
+    # Return the newly created Amenity
+    #   object in JSON format with 201 status code
+    return jsonify(amenity.to_dict()), 201
+
+
+
+
+# Route for updating an existing Amenity object by ID
 @app_views.route('/amenities/<amenity_id>', methods=['PUT'],
                  strict_slashes=False)
-def put_amenity(amenity_id=None):
-    """Updates a Amenity object"""
-    result = request.get_json()
-    if not result:
-        abort(400, {"Not a JSON"})
-    obj = storage.get('Amenity', amenity_id)
-    if obj is None:
+def update_amenity(amenity_id):
+    '''Updates an Amenity object'''
+    # Get the Amenity object with the given ID from the storage
+    amenity = storage.get(Amenity, amenity_id)
+    if amenity:
+        # Return 400 error if the request data is not in JSON format
+        if not request.get_json():
+            abort(400, 'Not a JSON')
+
+
+        # Get the JSON data from the request
+        data = request.get_json()
+        ignore_keys = ['id', 'created_at', 'updated_at']
+        # Update the attributes of the Amenity object with the JSON data
+        for key, value in data.items():
+            if key not in ignore_keys:
+                setattr(amenity, key, value)
+
+
+        # Save the updated Amenity object to the storage
+        amenity.save()
+        # Return the updated Amenity object in JSON format with 200 status code
+        return jsonify(amenity.to_dict()), 200
+    else:
+        # Return 404 error if the Amenity object is not found
         abort(404)
-    invalid_keys = ["id", "created_at", "updated_at"]
-    for key, value in result.items():
-        if key not in invalid_keys:
-            setattr(obj, key, value)
-    storage.save()
-    return jsonify(obj.to_dict()), 200
+
+
+
+
+# Error Handlers:
+@app_views.errorhandler(404)
+def not_found(error):
+    '''Returns 404: Not Found'''
+    # Return a JSON response for 404 error
+    response = {'error': 'Not found'}
+    return jsonify(response), 404
+
+
+
+
+@app_views.errorhandler(400)
+def bad_request(error):
+    '''Return Bad Request message for illegal requests to the API.'''
+    # Return a JSON response for 400 error
+    response = {'error': 'Bad Request'}
+    return jsonify(response), 400
